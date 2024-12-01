@@ -153,30 +153,6 @@ def register():
 
 
 
-@app.route('/save_customer_data', methods=['POST'])
-def save_customer_data():
-    try:
-        # Get JSON data from the request
-        data = request.get_json()
-        print("Request received:", data)
-
-        # Validate JSON data
-        if not all([data.get('username'), data.get('email'), data.get('password')]):
-            return jsonify({"error": "All fields are required!"}), 400
-
-        # Create a Customer object and save it to the database
-        customer = Customer(
-            username=data.get('username'),
-            password=data.get('password'),
-            email=data.get('email')
-        )
-        customer.save_to_db(DATABASE_PATH)
-
-        return jsonify({"message": "Customer data successfully saved to the database!"}), 200
-
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
