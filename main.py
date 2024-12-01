@@ -31,6 +31,9 @@ import urllib.parse
 from flask import redirect, render_template, request, session
 from functools import wraps
 
+from database import Customer, create_tables
+import database
+
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'static'
@@ -54,12 +57,6 @@ def create_tables():
                         username TEXT UNIQUE NOT NULL,
                         email TEXT UNIQUE NOT NULL,
                         password TEXT NOT NULL)''')
-
-        db.execute('''CREATE TABLE IF NOT EXISTS customer (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        username TEXT UNIQUE NOT NULL,
-                        password TEXT NOT NULL,
-                        email TEXT NOT NULL)''')
 
         db.execute('''CREATE TABLE IF NOT EXISTS food (
                         food_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -121,6 +118,9 @@ def create_tables():
                         FOREIGN KEY(user_id) REFERENCES user(id))''')
     print("Tables created successfully!")
 
+# Initialize database
+database.create_tables(DATABASE_PATH)
+
 @app.route('/')
 @app.route('/home')
 def home():
@@ -129,17 +129,53 @@ def home():
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
-        username = request.form['username']
-        email = request.form['email']
-        password = request.form['password']
+        username = request.form.get('username')
+        email = request.form.get('email')
+        password = request.form.get('password')
         hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
 
-        with get_db() as db:
-            db.execute('''INSERT INTO customer (username, email, password) VALUES (?, ?, ?)''',
-                       (username, email, hashed_password))
-        return redirect(url_for('login'))
+        if not username or not email or not password:
+            flash("All fields are required!")
+            return redirect(url_for('register'))
+
+        # Create and save Customer
+        customer = Customer(username, email, hashed_password)
+        try:
+            customer.save_to_db(DATABASE_PATH)
+            flash("Registration successful! Please login.")
+            return redirect(url_for('login'))
+        except Exception as e:
+            flash(f"Error saving customer: {str(e)}")
+            print("Error saving customer:", e)
+            return redirect(url_for('register'))
+
     return render_template('register.html')
 
+
+
+@app.route('/save_customer_data', methods=['POST'])
+def save_customer_data():
+    try:
+        # Get JSON data from the request
+        data = request.get_json()
+        print("Request received:", data)
+
+        # Validate JSON data
+        if not all([data.get('username'), data.get('email'), data.get('password')]):
+            return jsonify({"error": "All fields are required!"}), 400
+
+        # Create a Customer object and save it to the database
+        customer = Customer(
+            username=data.get('username'),
+            password=data.get('password'),
+            email=data.get('email')
+        )
+        customer.save_to_db(DATABASE_PATH)
+
+        return jsonify({"message": "Customer data successfully saved to the database!"}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -426,16 +462,14 @@ def addtocart():
 
 @app.route('/checkout')
 def checkout():
-    # Query to join cartitem with food table to get food_name, food_price, etc.
-    conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT cartitem.quantity, food.food_name, food.food_price
-        FROM cartitem
-        JOIN food ON cartitem.food_id = food.food_id
-    ''')
-    cart_items = cursor.fetchall()
-    return render_template('checkout.html', cartitems=cart_items)
+    # Query to join CartItem with Food and retrieve necessary fields
+    cartitems = db.session.query(
+        CartItem.quantity,
+        Food.food_name,
+        Food.food_price
+    ).join(Food, CartItem.food_id == Food.food_id).all()
+
+    return render_template('checkout.html', cartitems=cartitems)
 
 
 @app.route('/view_cart')
